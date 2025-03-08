@@ -3,20 +3,24 @@
 # Script Name  : dusk.pl
 # Author       : Jake Morgan
 # Created      : 07-Mar-2025
-# Version      : 1.0
+# Version      : 1.1
 # Description  : DUSK (Disk Usage SKanner) is an interactive disk usage
-#                scanning and navigation tool. It performs a one-time scan
-#                (using du -a -b) to cache the entire directory and file tree.
-#                It displays both files and directories with human-readable sizes,
-#                a relative bar graph, and a type column ("D" for directory, "F" for file).
-#                When a file is selected, an info box shows details about the file,
-#                including owner, group, permissions, timestamps, and output from the
-#                external `file` command.
+#                scanning and navigation tool written in Perl. It performs a one‑time
+#                recursive scan (using du -a -b) to cache the entire file and directory
+#                tree, then lets you navigate the tree via an interactive terminal menu.
+#
+#                Each file and directory is displayed with a human-readable size, a bar graph
+#                representing its relative disk usage, and a type indicator ("D" for directory,
+#                "F" for file). When a file is selected, an info box displays detailed file information,
+#                including output from the external `file` command.
 #
 # Usage        :
 #   ./dusk.pl                 # Start from root (/)
 #   ./dusk.pl --pwd           # Start from the current working directory
 #   ./dusk.pl --path <dir>    # Start from a specified directory
+#
+# Cautions     : This tool caches the entire disk usage map in memory; it may be resource intensive.
+#                For best performance, run it on specific absolute paths rather than scanning the whole root.
 #
 # Dependencies : Perl modules:
 #                  - Term::ReadKey
@@ -24,6 +28,7 @@
 #                  - Storable
 #                  - POSIX
 # ==============================================================================
+
 use strict;
 use warnings;
 use Term::ReadKey;
@@ -31,6 +36,7 @@ use Getopt::Long;
 use File::Basename;
 use Storable qw(store retrieve);
 use POSIX qw(strftime);
+use Term::ReadKey qw(GetTerminalSize);
 
 $| = 1;  # unbuffered output
 my $DEBUG = 0;  # Set to 1 for extra debug prints
@@ -170,7 +176,7 @@ sub show_file_info {
     chomp($file_cmd_output);
 
     print "\033[2J\033[H";
-    print "========= DUSK =========\n";
+    print "========= DUSK =========\n";									   
     print "=== File Information ===\n";
     print "Path        : $file\n";
     print "Type        : $type\n";
@@ -196,15 +202,19 @@ sub show_file_info {
 # ----------------------------------------------------------------------------
 sub print_menu {
     my ($current_dir, $menu_ref, $selected, $window_start, $available) = @_;
-    print "\033[2J\033[H";  # clear and reposition cursor
+    my ($cols, $rows) = GetTerminalSize(*STDOUT);
+    print "\033[2J\033[H";  # clear screen and reposition cursor
     print "=== DUSK: Disk Usage SKanner ($current_dir) ===\n";
     print "Use ↑/↓ to navigate, ENTER to select, or 'q' to quit\n";
     print "--------------------------------\n";
     for (my $i = $window_start; $i < @$menu_ref && $i < $window_start + $available; $i++) {
+        my $line = $menu_ref->[$i];
+        $line = sprintf("%-${cols}s", $line);  # pad to full terminal width
         if ($i == $selected) {
-            print "> $menu_ref->[$i]\n";
+            # Invert the entire line.
+            print "\033[7m$line\033[0m\n";
         } else {
-            print "  $menu_ref->[$i]\n";
+            print "$line\n";
         }
     }
 }
@@ -243,9 +253,9 @@ sub menu_select {
             my $seq = ReadKey(0);
             if (defined $seq and $seq eq "[") {
                 my $arrow = ReadKey(0);
-                if ($arrow eq "A") {  # Up arrow; stop at top.
+                if ($arrow eq "A") {  # Up arrow; hard stop at 0.
                     $selected-- if $selected > 0;
-                } elsif ($arrow eq "B") {  # Down arrow; stop at bottom.
+                } elsif ($arrow eq "B") {  # Down arrow; hard stop at end.
                     $selected++ if $selected < scalar(@$menu_ref) - 1;
                 }
             }
@@ -257,9 +267,9 @@ sub menu_select {
 # Subroutine: interactive_menu
 #
 # Uses the cached tree to display a menu of the current directory's contents.
-# Lists both files and directories with a bar-graph and type column.
-# If a file is selected, shows an info box.
-# If many items exist, displays a scanning progress indicator.
+# Lists both files and directories with a bar-graph, type column, and a new column
+# indicating the file type ("D" for directory, "F" for file).
+# If a file is selected, its info box is displayed.
 # ----------------------------------------------------------------------------
 sub interactive_menu {
     my $current = shift;
@@ -289,6 +299,7 @@ sub interactive_menu {
                 my $bar = '#' x $bar_length;
                 my $bar_field = sprintf("[%-${bar_width}s]", $bar);
                 my $type = (-d $item->{path}) ? "D" : "F";
+                # Format: SIZE, bar, type, full path.
                 push @menu, sprintf("%-8s %s %-1s %s", $hr, $bar_field, $type, $item->{path});
             }
         } else {
@@ -296,7 +307,7 @@ sub interactive_menu {
         }
         push @menu, "Exit";
         
-        # Simulate scanning progress if there are many items.
+        # If there are many items, simulate a scanning progress indicator.
         if (scalar(@menu) > 50) {
             print "\rLoading directory contents, please wait...";
             sleep(0.5);
@@ -323,6 +334,7 @@ sub interactive_menu {
                 }
             }
         }
+        # Loop refreshes menu with updated $current.
     }
 }
 
