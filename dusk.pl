@@ -32,6 +32,7 @@
 use strict;
 use warnings;
 use Term::ReadKey;
+die "Not running interactively!\n" unless -t STDIN;
 use Getopt::Long;
 use File::Basename;
 use Storable qw(store retrieve);
