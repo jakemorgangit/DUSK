@@ -50,6 +50,12 @@ Scan from the root directory (`/`):
 ./dusk.pl
 ```
 
+If scanning on a CPU starved host, try running this to ensure other processes are not in contention:
+
+```
+ nice -n 10 taskset -c 0 perl dusk.pl
+```
+
 #### Current Working Directory:
 Start scanning from the current directory:
 
